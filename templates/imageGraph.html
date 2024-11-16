@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Active Node Creation and Linking</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: #f0f0f0;
+        position: relative;
+        user-select: none;
+      }
+
+      .node {
+        position: absolute;
+        resize: both;
+        padding: 10px 10px;
+        background-color: blue;
+      }
+
+      .node.active {
+        background-color: rgb(0, 255, 247) !important;
+      }
+
+      .node.memorized {
+        background-color: rgb(0, 38, 255);
+      }
+
+      .line {
+        position: absolute;
+        height: 2px;
+        background-color: black;
+        transform-origin: 0 50%;
+        z-index: -1;
+      }
+
+      .line-memory {
+        position: absolute;
+        height: 2px;
+        background-color: rgba(0, 38, 255, 0.37);
+        transform-origin: 0 50%;
+        z-index: -1;
+      }
+
+      .cursor {
+        width: 1px;
+        height: 20px;
+        background-color: rgb(255, 123, 0);
+        animation: blink 1s step-end infinite;
+        margin-left: 0px;
+      }
+
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+        }
+
+        50% {
+          opacity: 0;
+        }
+      }
+
+   
+      #promptTxt {
+        padding: 10px 10px;
+        font-size: 16px;
+        background-color: #343434;
+        color: #f7fff7;
+        /* width: 80%; */
+        flex: none;
+        border-radius: 5px;
+
+         bottom: 10px;
+        width: 90%;
+                z-index: 100;
+        position: absolute;
+      }
+
+      #fileToUpload {
+        display: block;
+        padding: 10px 10px;
+        margin: 0px 5px;
+        background-color: #343434;
+        color: #f0f0f0;
+        border-radius: 5px;
+      }
+
+      #uploadTxtBtn {
+        border-radius: 5px;
+        background-color: #343434;
+        color: #f0f0f0;
+      }
+
+
+
+
+
+
+
+
+
+
+#resizable-container {
+  position: relative;
+  display: inline-block;
+  width: 300px; /* Initial width */
+  overflow: hidden;
+  border: 4px solid #333; /* Border for dragging */
+  box-sizing: border-box;
+}
+
+#resizable-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  pointer-events: none;
+}
+
+
+
+
+
+    </style>
+  </head>
+
+<body>
+
+  <div id="resizable-container">
+    <img id="resizable-image" src="https://picsum.photos/1024/1024" alt="Resizable Image" />
+  </div>
+
+  <input placeholder="> type your prompt here" type="text" name="prompt" id="promptTxt" autofocus spellcheck="true" />
+
+  <script>
+    const container = document.getElementById("resizable-container");
+    const image = document.getElementById("resizable-image");
+
+    let aspectRatio = image.naturalWidth / image.naturalHeight;
+    let isResizing = false;
+    let startX, startY, startWidth, startHeight;
+
+    container.addEventListener("mousedown", (e) => {
+      // Check if the click is within the border area (resize zone)
+      const borderSize = 10;
+      const rect = container.getBoundingClientRect();
+
+      if (
+        e.clientX < rect.left + borderSize ||
+        e.clientX > rect.right - borderSize ||
+        e.clientY < rect.top + borderSize ||
+        e.clientY > rect.bottom - borderSize
+      ) {
+        // Start resizing
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = rect.width;
+        startHeight = rect.height;
+
+        // Add listeners for mousemove and mouseup
+        document.addEventListener("mousemove", resize);
+        document.addEventListener("mouseup", stopResize);
+      }
+    });
+
+    function resize(e) {
+      if (isResizing) {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        // Determine the smaller of the dx or dy to keep the resizing proportional
+        const distance = Math.min(dx, dy);
+
+        // Calculate new width and height, keeping the aspect ratio
+        let newWidth = startWidth + distance;
+        let newHeight = newWidth / aspectRatio;
+
+        // Apply the new width and height to the container
+        container.style.width = `${newWidth}px`;
+        container.style.height = `${newHeight}px`;
+      }
+    }
+
+    function stopResize() {
+      isResizing = false;
+      document.removeEventListener("mousemove", resize);
+      document.removeEventListener("mouseup", stopResize);
+    }
+
+
+
+
+
+      const NODE_OFFSET_Y = 150;
+      let nodes = []; // The nodes that are currently on the screen
+      let edges = {};
+      let activeNode = null; // The node that is currently selected
+
+      let memory = []; // The nodes + type that are in the context state
+      let isDragging = false;
+      let draggedNode = null;
+      let startDragPosX = 0;
+      let startDragPosY = 0;
+      let lastCreatedNode;
+      let mouseX = 0;
+      let mouseY = 0;
+      let clickedBackgroundPosition = { x: 0, y: 0 };
+      let isDraggingBackground = false;
+      let offsetXBackground = 0;
+      let offsetYBackground = 0;
+      let isHoldingCtrl = false;
+      let isHoldingShift = false;
+      let isHoldingAlt = false;
+      let uid = 2003;
+
+    
+      let state = {
+        nodes: [],
+        edges: [],
+      };
+
+      function createNode(content, x, y, generatedByLLM = false, isImage = false) {
+        const node = document.createElement("div");
+        node.classList.add("node");
+
+     if (isImage) {
+          // Create an image element if isImage is true
+          const img = document.createElement("img");
+          img.src =  `data:image/png;base64,${content}`; ; // Set the source of the image to content
+          // img.alt = "Node image"; // Optionally add alt text
+          img.maxWidth = "300px";
+          img.draggable = false;
+          img.style.userSelect = "none";
+          // img.classList.add("node-image"); // Optional class for styling
+          node.appendChild(img); // Append image to the node
+        } else {
+          // Set text content if isImage is false
+          node.textContent = content;
+        }
+       
+        document.body.appendChild(node);
+
+        const boundingBox = node.getBoundingClientRect();
+        const nodeX = x - boundingBox.width / 2;
+        const nodeY = y - boundingBox.height / 2;
+
+        node.style.left = nodeX + "px";
+        node.style.top = nodeY + "px";
+
+        node.addEventListener("click", () => {
+          if (isDragging === false) {
+            setActiveNode(node);
+          }
+        });
+
+        node.addEventListener("pointerdown", (e) => {
+
+        
+          if (isHoldingCtrl || isHoldingShift) {
+        
+            return;
+          }
+          startDrag(e, node);
+        });
+
+  
+
+        if (activeNode) {
+          makeParent(activeNode, node, false);
+        }
+        nodes.push(node);
+        lastCreatedNode = node;
+
+        uid += 1;
+        let new_node = {
+          id: uid,
+          payload: content,
+          left: nodeX,
+          top: nodeY,
+        };
+        state.nodes.push(new_node);
+        node.dataset.nodeId = uid;
+
+        const parents = document.getElementsByClassName("node active");
+
+        if (parents.length > 0) {
+          let parent_ids = [];
+          for (let i = 0; i < parents.length; i++) {
+            parent_ids.push(parents[i].dataset.nodeId);
+          }
+          state.edges.push({
+            self: uid,
+            parents: parent_ids,
+          });
+        }
+
+        if (generatedByLLM === false) {
+          setActiveNode(node);
+        }
+      }
+
+     
+ 
+      function setMemorizedNode(node) {
+        node.classList.toggle("memorized");
+        node.classList.remove("active");
+      }
+
+      function unsetActiveNode(node) {
+        if (node) {
+          node.classList.remove("active");
+        }
+      }
+
+      function setActiveNode(node) {
+        activeNode = node;
+
+        nodes.forEach((_node) => {
+          _node.classList.remove("active");
+        });
+       
+
+        node.classList.add("active");
+      }
+
+      function makeParent(parentNode, childNode, isMemoryNode = false) {
+        const line = document.createElement("div");
+        line.classList.add(isMemoryNode ? "line-memory" : "line");
+        document.body.appendChild(line);
+        updateLine(line, parentNode, childNode);
+
+        parentNode.lines = parentNode.lines || [];
+        childNode.lines = childNode.lines || [];
+        parentNode.lines.push({
+          line,
+          target: childNode,
+          type: "targetIsChild",
+        });
+        childNode.lines.push({
+          line,
+          target: parentNode,
+          type: "targetIsParent",
+        });
+      }
+
+      function updateLine(line, node1, node2) {
+        const node1Pos = node1.getBoundingClientRect();
+        const node2Pos = node2.getBoundingClientRect();
+
+        const x1 = node1Pos.left + node1Pos.width / 2;
+        const y1 = node1Pos.top + node1Pos.height / 2;
+        const x2 = node2Pos.left + node2Pos.width / 2;
+        const y2 = node2Pos.top + node2Pos.height / 2;
+
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+        line.style.width = `${distance}px`;
+        line.style.left = `${x1}px`;
+        line.style.top = `${y1}px`;
+        line.style.transform = `rotate(${angle}deg)`;
+      }
+
+      function startDrag(event, node) {
+        isDragging = true;
+        draggedNode = node;
+        startDragPosX = event.clientX;
+        startDragPosY = event.clientY;
+
+        node.style.cursor = "grabbing";
+        // setActiveNode(node);
+        document.addEventListener("pointermove", onDrag);
+        document.addEventListener("pointerup", stopDrag);
+      }
+
+      function onDrag(event) {
+        if (isHoldingCtrl || isHoldingShift) {
+          return;
+        }
+        if (isDragging && draggedNode) {
+          let offsetX = event.clientX - startDragPosX;
+          let offsetY = event.clientY - startDragPosY;
+
+          startDragPosX = event.clientX;
+          startDragPosY = event.clientY;
+
+          const x = draggedNode.getBoundingClientRect().left + offsetX;
+          const y = draggedNode.getBoundingClientRect().top + offsetY;
+          draggedNode.style.left = `${x}px`;
+          draggedNode.style.top = `${y}px`;
+
+          if (draggedNode.lines) {
+            draggedNode.lines.forEach((lineContainer) => {
+              if (isHoldingAlt == false) {
+                if (lineContainer.type == "targetIsChild") {
+                  const child = lineContainer.target;
+
+                  const x = child.getBoundingClientRect().left + offsetX;
+                  const y = child.getBoundingClientRect().top + offsetY;
+                  child.style.left = `${x}px`;
+                  child.style.top = `${y}px`;
+
+                  updateLines(child);
+                }
+              }
+
+              updateLine(lineContainer.line, draggedNode, lineContainer.target);
+            });
+          }
+        }
+      }
+
+      function updateLines(node) {
+        node.lines.forEach((lineContainer) => {
+          updateLine(lineContainer.line, node, lineContainer.target);
+        });
+      }
+
+      function stopDrag() {
+        isDragging = false;
+        if (draggedNode) {
+          draggedNode.style.cursor = "pointer";
+        }
+        draggedNode = null;
+        document.removeEventListener("pointermove", onDrag);
+        document.removeEventListener("pointerup", stopDrag);
+      }
+
+      function getNodePosition(node) {
+        const boundingBox = node.getBoundingClientRect();
+        const x = boundingBox.left + boundingBox.width / 2;
+        const y = boundingBox.top + boundingBox.height / 2;
+        return { x, y };
+      }
+
+      document.addEventListener("keydown", function (event) {
+        const promptTxtBox = document.querySelector("#promptTxt");
+        promptTxtBox.focus();
+
+        if (event.key === "Enter") {
+          const inputText = promptTxtBox.value;
+
+          if (inputText.trim() == "") {
+            return;
+          }
+          promptTxtBox.value = "";
+
+
+          let pos = { x: 0, y: 0 };
+
+          // console.log("memory",memory);
+
+          if (activeNode) {
+            pos = getNodePosition(activeNode);
+          } else if (lastCreatedNode) {
+            pos = getNodePosition(lastCreatedNode);
+          } else {
+            pos.x = window.innerWidth / 2;
+          }
+          pos.y += NODE_OFFSET_Y;
+
+
+
+            const requestPayload = {
+           data: inputText, // You can modify this based on the API
+         };
+
+         // Send a POST request to the /image endpoint
+         fetch("/genImg", {
+           method: "POST",
+           headers: {
+             "Content-Type": "application/json",
+           },
+           body: JSON.stringify(requestPayload),
+         })
+           .then(response => response.json()) // Parse JSON from the response
+           .then(data => {
+             // Check if the image_base64 field exists in the response
+             if (data.image_base64) {
+
+               createNode(data.image_base64, pos.x, pos.y, false, true);
+               
+             } else {
+               console.error("No image_base64 field found in the response.");
+             }
+           })
+           .catch(error => {
+             console.error("Error fetching image:", error);
+           });
+
+       
+          // sendToLLM(activeNode);
+        } else if (event.key === "Control") {
+          isHoldingCtrl = true;
+        } else if (event.key === "Shift") {
+          isHoldingShift = true;
+        } else if (event.key === "Alt") {
+          isHoldingAlt = true;
+        } else if (event.key === "Delete") {
+          nodes.forEach((node) => {
+            if (node.lines) {
+              node.lines.forEach((lineContainer) => {
+                lineContainer.line.remove();
+
+                if (lineContainer.target.lines) {
+                  lineContainer.target.lines =
+                    lineContainer.target.lines.filter(
+                      (connection) => connection.target !== node
+                    );
+                }
+              });
+            }
+
+            nodes = nodes.filter((existingNode) => existingNode !== node);
+
+            node.remove();
+          });
+          nodes = [];
+        } else {
+          return;
+        }
+      });
+      document.addEventListener("keyup", function (event) {
+        if (event.key === "Control") {
+          isHoldingCtrl = false;
+        } else if (event.key === "Shift") {
+          isHoldingShift = false;
+        } else if (event.key === "Alt") {
+          isHoldingAlt = false;
+        }
+      });
+
+      document.addEventListener("pointerdown", function (event) {
+        if (event.target === document.body) {
+          if (isHoldingCtrl === false && isHoldingShift === false) {
+            nodes.forEach((_node) => _node.classList.remove("active"));
+          }
+
+          isDraggingBackground = true;
+          clickedBackgroundPosition.x = event.clientX;
+          clickedBackgroundPosition.y = event.clientY;
+        }
+      });
+
+      document.addEventListener("pointermove", function (event) {
+        mouseX = event.clientX;
+        mouseY = event.clientY;
+        if (isDraggingBackground) {
+          const diffX = event.clientX - clickedBackgroundPosition.x;
+          const diffY = event.clientY - clickedBackgroundPosition.y;
+          nodes.forEach((_node) => {
+            _node.style.left = `${parseInt(_node.style.left) + diffX}px`;
+            _node.style.top = `${parseInt(_node.style.top) + diffY}px`;
+            if (_node.lines) {
+              _node.lines.forEach((lineContainer) => {
+                updateLine(lineContainer.line, _node, lineContainer.target);
+              });
+            }
+          });
+
+          clickedBackgroundPosition.x = event.clientX;
+          clickedBackgroundPosition.y = event.clientY;
+        }
+      });
+      document.addEventListener("pointerup", function (event) {
+        isDraggingBackground = false;
+      });
+
+    
+    </script>
+  </body>
+</html>
